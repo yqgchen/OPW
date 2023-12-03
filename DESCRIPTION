@@ -1,0 +1,28 @@
+Package: OPW
+Type: Package
+Title: Pairwise warping for metric space valued functional data
+URL: https://github.com/yqgchen/OPW
+BugReports: https://github.com/yqgchen/OPW/issues
+Version: 0.1.0
+Encoding: UTF-8
+Date: 2023-12-03
+Authors@R: 
+    c(person(given = "Yaqing",
+             family = "Chen",
+             email = "yqchen@stat.rutgers.edu",
+             role = c("aut", "cph", "cre")),
+      person(given = "Hans-Georg",
+             family = "Müller",
+             role = c("ths", "aut")))
+Maintainer: Yaqing Chen <yqchen@stat.rutgers.edu>
+Description: Provides implementation of pairwise warping for metric space valued functional data, currently including distributional data.  
+    References: Chen, Y. & Müller, H.-G. (2022) <doi:10.1214/21-AOS2163>.
+License: BSD_3_clause + file LICENSE
+LazyData: false
+Imports:
+    frechet,
+    pracma,
+    stats
+Suggests: 
+    minqa
+RoxygenNote: 7.1.0
