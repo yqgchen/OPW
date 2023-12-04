@@ -1,7 +1,8 @@
-#' @title Wasserstein pairwise warping for distribution-valued random processes.
+#' @title Wasserstein pairwise warping for distribution-valued random processes
 #' @description Pairwise warping for distribution-valued random processes 
 #' \eqn{\{X_i(\cdot)\}_{i=1}^{n}} endowed with 2-Wasserstein metric, 
-#' where each \eqn{X_i(\cdot)} is a distribution-valued random process.
+#' where each \eqn{X_i(\cdot)} is a distribution-valued random process 
+#' estimated via local Fréchet regression.
 #' @param Lt A list of \eqn{n} vectors, where \code{Lt[[i]]} is a vector of 
 #' length \eqn{m_i} holding the observation time points for the \eqn{i}-th 
 #' distribution-valued process \eqn{X_i(\cdot)}. Each vector should be sorted in ascending order.
@@ -28,21 +29,23 @@
 #' holding the support grid and the corresponding values of the quantile functions, respectively. 
 #' @param optns A list of options control parameters specified by \code{list(name=value)}, 
 #' including all those available in \code{\link[frechet]{LocDenReg}} and \code{\link[fdapace]{WFDA}}, 
+#' except for that the default \code{subsetProp} is 1 and default \code{kernelReg} is \code{'epan'}; 
 #' as well as 
 #' \describe{
 #' \item{ngrid}{Number of grid points for evaluating the warping functions (default: 51).}
 #' }
 #' @return A list of the following:
 #' \item{h}{A matrix holding the warping functions evaluated on \code{workGrid}, each row corresponding to a subject.}
-#' \item{hInv}{A matrix holding the inversed warping functions evaluated on \code{workGrid}, each row corresponding to a subject.}
+#' \item{hInv}{A matrix holding the inverse warping functions evaluated on \code{workGrid}, each row corresponding to a subject.}
 #' \item{qfAligned}{A list of matrices. The \eqn{i}-th matrix holds the \eqn{i}-th aligned 
 #' distributional trajectory on \code{workGrid} represented by quantile functions on \code{qSup}, 
 #' where each row corresponds to one time point in \code{workGrid}.}
 #' \item{qf}{Local Fréchet regression estimates of distributional trajectories on \code{workGrid} 
 #' represented by quantile functions on \code{qSup}, with the same format as \code{qfAligned}.}
-#' \item{qSup}{A increasing grid between 0 and 1.}
+#' \item{qSup}{An increasing grid between 0 and 1 holding the support grid on which the quantile functions are evaluated.}
 #' \item{workGrid}{A vector of length \code{optns$ngrid}. 
-#' An equidistant grid on which warping functions and local Fréchet regression estimated trajectories are evaluated.}
+#' An equidistant grid on which (inverse) warping functions in \code{h} and \code{hInv} 
+#' and distributional trajectories in \code{qf} and \code{qfAligned} are evaluated.}
 #' \item{optns}{Control options used.}
 #' \item{costs}{The mean cost associated with each trajectory.}
 #' \item{timingWarp}{The time cost of time warping.}
@@ -133,17 +136,7 @@ WassPW <- function ( Lt=NULL, Ly=NULL, Lh=NULL, Lq=NULL, optns = list() ){
   
   # set up some default options
   if ( is.null(optns$ngrid) ) optns$ngrid <- 51
-  if ( is.null(optns$nknots) ) optns$nknots <- 2
-  if ( is.null(optns$subsetProp) ) optns$subsetProp <- 1
-  if (is.null(optns$choice)) optns$choice = 'truncated'
-  if ( !(optns$choice %in% c('truncated','weighted') )) {
-    stop("The estimation of warping functions can only be done by 'truncated' or 'weighted' average.")
-  }
-  if (is.null(optns$isPWL)) optns$isPWL <- TRUE
-  if (is.null(optns$seed)) optns$seed <- 666
-  if (is.null(optns$verbose)) optns$verbose <- FALSE
   if (is.null(optns$kernelReg)) optns$kernelReg <- 'epan'
-  # lambda is to be set up later
   
   tin <- unique( sort( unlist( Lt ) ) )
   trange <- range(tin)
@@ -168,116 +161,24 @@ WassPW <- function ( Lt=NULL, Ly=NULL, Lh=NULL, Lq=NULL, optns = list() ){
   }
   qSup <- qf[[1]]$qSup
   qf <- lapply( 1:nsubj, function(i) { 
-    t(qf[[i]]$qout) # each column corresponds to a time point
+    qf[[i]]$qout # each column corresponds to a time point
   } )
   timingPrsm <- Sys.time() - timingPrsm
   
-  numOfKcurves = min(round(optns$subsetProp * (nsubj-1)))
-  gijMat <- array(dim = c(numOfKcurves,M,nsubj) ) 
-  distMat <- matrix( nrow = nsubj, ncol = numOfKcurves)
-  hMat <- array(dim = c(nsubj,M) )
-  hInvMat <- array(dim = c(nsubj,M) )
-  qfAligned <- list()
+  # time warping
   
-  ## extract the closest subset to tj of workGrid (standardized presmoothing time grid)
-  get_tJ <- function(tj=workGrid){
-    workGrid[round(tj * (M-1)) + 1]
-  }
-  
-  ## extract the quantile functions for the jth country on the closest subset to tj of workGrid (standardized presmoothing time grid)
-  getQtJ <- function(j, tj = workGrid){
-    qf[[j]][, round(tj * (M-1)) + 1]
-  }
-  
-  ## evaluating the warping function on tGrid according to res 
-  getSol <- function(res, tGrid){
-    approx(x = seq(0,1, length.out = (2 + optns$nknots)), y = c(0, sort(res), 1), xout = tGrid)$y
-    #approx(x = seq(0,1, length.out = (2+ optns$nknots)), y = c(0, Rcppsort(res),1) ,n = M)$y
-    #RcppPseudoApprox(X = seq(0,1, length.out = (2+ optns$nknots)), Y = c(0, Rcppsort(res),1), X_target = seq(0,1, length.out = M))
-  }
-  
-  theCostOptim <- function(x, i, j, lambda, ti){
-    tj = getSol(x, ti)
-    pracma::trapz(ti, apply((getQtJ(j, tj) - getQtJ(i, ti))^2, 2, sum) + lambda * (get_tJ(tj)-ti)^2)
-    #fdapace::trapzRcpp(ti, apply((getQtJ(tj, qtj) - qti)^2, 2, sum) + lambda * (tj-ti)^2)
-  }
-  
-  getGijOptim <- function(i, j, lambda, minqaAvail ){
-    s0 <- seq(0,1,length.out = (2+ optns$nknots))[2:(1+optns$nknots)]
-    if( !minqaAvail ) { 
-      optimRes <- optim( par = s0, fn = theCostOptim, method = 'L-BFGS-B', 
-                         lower = rep(1e-6, optns$nknots), upper = rep(1 - 1e-6, optns$nknots),
-                         i = i, j = j, lambda = lambda, ti = workGrid)
-    } else {
-      optimRes <-  minqa::bobyqa( par = s0, fn = theCostOptim,  
-                                  lower = rep(1e-6, optns$nknots), upper = rep(1 - 1e-6, optns$nknots),
-                                  i = i, j = j, lambda = lambda, ti = workGrid)
-    }
-    bestSol <- getSol(optimRes$par, seq(0,1,length.out=M))  
-    return( bestSol )
-  }
-  
-  if (is.null(optns$lambda)){
-    Vy = sqrt( sum( unlist(lapply(seq_along(qf), function(i) {
-      qti = getQtJ(i)
-      mu = rowMeans(qti)
-      pracma::trapz(workGrid, apply((qti - mu)^2, 2, sum)) * diff(trange)
-      #fdapace::trapzRcpp(workGrid, apply((qti - mu)^2, 2, sum)) * diff(trange)
-    }) ) )/(nsubj-1) )
-    optns$lambda <- Vy*10^-4
-  } 
-  lambda <- optns$lambda
-  
-  if( !is.element('minqa', installed.packages()[,1]) && optns$isPWL){
-    warning("Cannot use 'minqa::bobyqa' to find the optimal knot locations as 'minqa' is not installed. We will do an 'L-BFGS-B' search.") 
-    minqaAvail = FALSE
-  } else {
-    minqaAvail = TRUE
-  }
-  
-  timingWarp <- Sys.time()
-  
-  for(i in seq_len(nsubj)){ # For each trajectory
-    if(optns$verbose){
-      cat('Computing pairwise warping for trajectory #', i, 'out of', nsubj, 'trajectories.\n')
-    }
-    set.seed( i + optns$seed )
-    candidateKcurves = sample(seq_len(nsubj)[-i], numOfKcurves)  
-    
-    for(j in seq_len(numOfKcurves)){ # For each of the candidate curves 
-      gijMat[j, ,i] = getGijOptim(i, candidateKcurves[j], lambda, minqaAvail)
-      distMat[i,j] = sqrt(pracma::trapz(workGrid, apply((getQtJ(j=candidateKcurves[j], tj = gijMat[j, ,i]) - getQtJ(i))^2, 2, sum)))
-      #fdapace::trapzRcpp(workGrid, apply((getQtJ(tj = gijMat[j, ,i], qtj = qf[[candidateKcurves[j]]]) - qti)^2, 2, sum))
-    }
-    
-    if(optns$choice == 'weighted'){
-      hInvMat[i,] = apply(gijMat[, ,i] , 2, weighted.mean, 1/distMat[i,])
-    } else {
-      hInvMat[i,] = apply(gijMat[  (distMat[i,] <= quantile( distMat[i,], p=0.90) ),  ,i] , 2, mean)
-    }
-    
-    hMat[i,] = approx(y = workGrid, x = hInvMat[i,], xout = workGrid)$y
-    #alignedMat[[i]] = getQtJ(hMat[i,],qti)
-    
-    ## quantile function at h(t) with t in StartEnd$start:StartEnd$end
-    qfAligned[[i]] = getQtJ(j = i, tj = hMat[i,])
-  }
-  
-  timingWarp <- Sys.time() - timingWarp
-  
-  qf <- lapply(qf, t)
-  qfAligned <- lapply(qfAligned, t)
+  res <- WassPWdense( tVec = workGrid, qf = qf, qSup = qSup, optns = optns )
   
   return(list(
-    h = hMat * diff(trange) + trange[1], 
-    hInv = hInvMat * diff(trange) + trange[1],
-    qfAligned = qfAligned,
+    h = res$h * diff(trange) + trange[1], 
+    hInv = res$hInv * diff(trange) + trange[1],
+    qfAligned = res$qfAligned,
     qf = qf, 
     qSup = qSup,
-    workGrid = workGrid * diff(trange) + trange[1],
-    optns = optns,
-    costs = rowMeans(distMat),
-    timingWarp = timingWarp,
+    workGrid = res$workGrid * diff(trange) + trange[1],
+    optns = res$optns,
+    costs = res$costs,
+    timingWarp = res$timingWarp,
     timingPrsm = timingPrsm
   ))
 }

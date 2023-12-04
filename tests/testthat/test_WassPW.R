@@ -1,10 +1,11 @@
 library(testthat)
-# test for WassPW()
+# test for WassPW() and WassPWdense()
 
 nsubj <- 20
 ntime <- 21
 qSup <- seq(0,1,0.05)
-Lt <- rep( list(seq_len(ntime)), nsubj )
+tVec <- seq_len(ntime)
+Lt <- rep( list(tVec), nsubj )
 Ly <- lapply(seq_len(nsubj), function (i){
   lapply(seq_len(ntime), function (j) {
     rnorm(51, mean = j)
@@ -27,3 +28,6 @@ expect_error( res3 <- WassPW(Lt = Lt, Lq = Lq), NA )
 expect_lt( sum( abs( t(res1$h) - seq(1,ntime,length.out = ncol(res1$h)) ) ), 1e-8 )
 expect_lt( sum( abs( t(res2$h) - seq(1,ntime,length.out = ncol(res2$h)) ) ), 1e-8 )
 expect_lt( sum( abs( t(res3$h) - seq(1,ntime,length.out = ncol(res3$h)) ) ), 1e-8 )
+
+expect_error( res4 <- WassPWdense(tVec = tVec, qf = Lq, qSup = qSup), NA )
+expect_lt( sum( abs( t(res4$h) - seq(1,ntime,length.out = ncol(res4$h)) ) ), 1e-8 )
