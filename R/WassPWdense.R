@@ -131,9 +131,9 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
     }
     
     if(optns$choice == 'weighted'){
-      hInvMat[i,] = apply(gijMat[, ,i] , 2, weighted.mean, 1/distMat[i,])
+      hInvMat[i,] = apply(gijMat[, ,i, drop = FALSE] , 2, weighted.mean, 1/distMat[i,])
     } else {
-      hInvMat[i,] = apply(gijMat[  (distMat[i,] <= quantile( distMat[i,], p=0.90) ),  ,i] , 2, mean)
+      hInvMat[i,] = apply(gijMat[  (distMat[i,] <= quantile( distMat[i,], p=0.90) ),  ,i, drop = FALSE] , 2, mean)
     }
     
     hMat[i,] = approx(y = workGrid, x = hInvMat[i,], xout = workGrid)$y
