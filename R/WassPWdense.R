@@ -9,7 +9,9 @@
 #' of which each row corresponds to a time point in \code{tVec}.
 #' @param qSup An increasing grid between 0 and 1 holding the support grid on which the quantile functions are evaluated.
 #' @param optns A list of options control parameters specified by \code{list(name=value)}, 
-#' including all those available in \code{\link[fdapace]{WFDA}} except for that the default \code{subsetProp} is 1.
+#' including all those available in \code{\link[fdapace]{WFDA}} except for that the default \code{subsetProp} is 1. 
+#' A difference is regarding the option \code{choice}: \code{'unweighted'} (default), \code{'weighted'}, or \code{'truncated'}. 
+#' If \code{choice} is \code{'unweighted'}, a simple average of pairwise warping functions are computed; otherwise see \code{\link[fdapace]{WFDA}} for details.
 #' @return A list of the following:
 #' \item{h}{A matrix holding the warping functions evaluated on \code{workGrid}, each row corresponding to a subject.}
 #' \item{hInv}{A matrix holding the inverse warping functions evaluated on \code{workGrid}, each row corresponding to a subject.}
@@ -23,6 +25,7 @@
 #' \item{optns}{Control options used.}
 #' \item{costs}{The mean cost associated with each trajectory.}
 #' \item{timingWarp}{The time cost of time warping.}
+#' \item{g}{An \eqn{(n-1)\times T\times n} array, where \code{g[j,,i]} holds the pairwise function aligning \eqn{X_j} to \eqn{X_i} evaluated on \code{workGrid}, where \eqn{T} is the length of \code{workGrid}.}
 #' @references
 #' \cite{Chen, Y., and Müller, H.-G. (2023). "Uniform convergence of local Fréchet regression with applications to locating extrema and time warping for metric space valued trajectories." The Annals of Statistics, 50(3), 1573--1592.}
 #' 
@@ -36,10 +39,10 @@
 WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
   # set up some default options
   if ( is.null(optns$nknots) ) optns$nknots <- 2
-  if ( is.null(optns$subsetProp) ) optns$subsetProp <- 1
-  if (is.null(optns$choice)) optns$choice = 'truncated'
-  if ( !(optns$choice %in% c('truncated','weighted') )) {
-    stop("The estimation of warping functions can only be done by 'truncated' or 'weighted' average.")
+  # if ( is.null(optns$subsetProp) ) optns$subsetProp <- 1
+  if (is.null(optns$choice)) optns$choice = 'unweighted'
+  if ( !(optns$choice %in% c('unweighted','weighted','truncated') )) {
+    stop("The estimation of warping functions can only be done by 'unweighted' or 'weighted' average.")
   }
   if (is.null(optns$isPWL)) optns$isPWL <- TRUE
   if (is.null(optns$seed)) optns$seed <- 666
@@ -52,7 +55,7 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
   nsubj <- length(qf)
   qf <- lapply( qf, t ) # each column corresponds to a time point
   
-  numOfKcurves = min(round(optns$subsetProp * (nsubj-1)))
+  numOfKcurves = nsubj-1 # min(round(optns$subsetProp * (nsubj-1)))
   gijMat <- array(dim = c(numOfKcurves,M,nsubj) ) 
   distMat <- matrix( nrow = nsubj, ncol = numOfKcurves)
   hMat <- array(dim = c(nsubj,M) )
@@ -122,7 +125,7 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
       cat('Computing pairwise warping for trajectory #', i, 'out of', nsubj, 'trajectories.\n')
     }
     set.seed( i + optns$seed )
-    candidateKcurves = sample(seq_len(nsubj)[-i], numOfKcurves)  
+    candidateKcurves = seq_len(nsubj)[-i]
     
     for(j in seq_len(numOfKcurves)){ # For each of the candidate curves 
       gijMat[j, ,i] = getGijOptim(i, candidateKcurves[j], lambda, minqaAvail)
@@ -132,8 +135,10 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
     
     if(optns$choice == 'weighted'){
       hInvMat[i,] = apply(gijMat[, ,i, drop = FALSE] , 2, weighted.mean, 1/distMat[i,])
-    } else {
+    } else if ( optns$choice == 'truncated') {
       hInvMat[i,] = apply(gijMat[  (distMat[i,] <= quantile( distMat[i,], p=0.90) ),  ,i, drop = FALSE] , 2, mean)
+    } else {
+      hInvMat[i,] = apply(gijMat[ , ,i, drop = FALSE] , 2, mean)
     }
     
     hMat[i,] = approx(y = workGrid, x = hInvMat[i,], xout = workGrid)$y
@@ -145,6 +150,12 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
   
   timingWarp <- Sys.time() - timingWarp
   
+  for(i in seq_len(nsubj)){
+    for(j in seq_len(numOfKcurves)){
+      gijMat[j, ,i] = gijMat[j, ,i] * diff(trange) + trange[1]
+    }
+  }
+  
   return(list(
     h = hMat * diff(trange) + trange[1], 
     hInv = hInvMat * diff(trange) + trange[1],
@@ -153,7 +164,8 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
     workGrid = workGrid * diff(trange) + trange[1],
     optns = optns,
     costs = rowMeans(distMat),
-    timingWarp = timingWarp
+    timingWarp = timingWarp,
+    g = gijMat
   ))
   
 }
