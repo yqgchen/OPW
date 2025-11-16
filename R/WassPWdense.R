@@ -42,7 +42,7 @@ WassPWdense <- function (tVec, qf, qSup, optns = list() ) {
   # if ( is.null(optns$subsetProp) ) optns$subsetProp <- 1
   if (is.null(optns$choice)) optns$choice = 'unweighted'
   if ( !(optns$choice %in% c('unweighted','weighted','truncated') )) {
-    stop("The estimation of warping functions can only be done by 'unweighted' or 'weighted' average.")
+    stop("The estimation of warping functions can only be done by 'unweighted', 'weighted', or 'truncated' average.")
   }
   if (is.null(optns$isPWL)) optns$isPWL <- TRUE
   if (is.null(optns$seed)) optns$seed <- 666
